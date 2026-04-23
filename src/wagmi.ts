@@ -8,8 +8,6 @@ export const wagmiConfig = createConfig({
     baseAccount({
       appName: "Base Frogger DX",
     }),
-    injected({ target: "braveWallet", unstable_shimAsyncInject: true }),
-    injected({ target: "rabby", unstable_shimAsyncInject: true }),
     injected({ unstable_shimAsyncInject: true }),
   ],
   transports: {

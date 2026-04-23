@@ -4,10 +4,10 @@ import {
   useAccount,
   useConnect,
   useDisconnect,
-  useSendTransaction,
   useWaitForTransactionReceipt,
+  useWriteContract,
 } from "wagmi";
-import { parseEther } from "viem";
+import { type Address, parseEther } from "viem";
 
 type Direction = "up" | "down" | "left" | "right";
 type GameState = "ready" | "playing" | "gameover";
@@ -47,6 +47,25 @@ const BASE_ERC8021_SUFFIX =
   "0x62635f373172746e3775680b0080218021802180218021802180218021" as const;
 
 const LEADERBOARD_KEY = "frogger-base-leaderboard";
+const FROGGER_GAME_ADDRESS = "0xE350ABB29d75733Ae1867989E3f7b464C1320AE" as Address;
+const ENTRY_FEE = parseEther("0.000001");
+
+const FROGGER_GAME_ABI = [
+  {
+    type: "function",
+    name: "startGame",
+    stateMutability: "payable",
+    inputs: [],
+    outputs: [],
+  },
+  {
+    type: "function",
+    name: "submitScore",
+    stateMutability: "nonpayable",
+    inputs: [{ name: "score", type: "uint256" }],
+    outputs: [],
+  },
+] as const;
 
 const CAR_COLORS = ["#e63946", "#f4a261", "#3a86ff", "#8338ec", "#ffbe0b"];
 
@@ -102,40 +121,113 @@ export function App() {
   const { address, isConnected, chainId } = useAccount();
   const { connect, connectors, isPending: connectPending, error: connectError } = useConnect();
   const { disconnect } = useDisconnect();
+  const { writeContract, data: writeHash, error: writeError, isPending: writePending } = useWriteContract();
 
   const [score, setScore] = useState(0);
   const [level, setLevel] = useState(1);
   const [gameState, setGameState] = useState<GameState>("ready");
   const [leaderboard, setLeaderboard] = useState<number[]>([]);
-
   const [walletModalOpen, setWalletModalOpen] = useState(false);
+  const [connectorAvailability, setConnectorAvailability] = useState<Record<string, boolean>>({});
+  const [startGameHash, setStartGameHash] = useState<`0x${string}` | undefined>();
+  const [submitScoreHash, setSubmitScoreHash] = useState<`0x${string}` | undefined>();
 
   function isBaseAccountConnector(connectorId: string) {
     return connectorId === "baseAccount" || connectorId === "coinbaseWalletSDK";
   }
 
   function getConnectorLabel(connectorId: string, connectorName: string) {
+    const normalizedId = connectorId.toLowerCase();
+    const normalizedName = connectorName.toLowerCase();
     if (isBaseAccountConnector(connectorId)) return "Sign in with Base";
-    if (connectorId.includes("brave")) return "Brave Wallet";
-    if (connectorId.includes("rabby")) return "Rabby";
+    if (normalizedId.includes("brave") || normalizedName.includes("brave")) return "Brave Wallet";
+    if (normalizedId.includes("rabby") || normalizedName.includes("rabby")) return "Rabby Wallet";
+    if (normalizedName.includes("injected")) return "Injected Wallet";
     return connectorName;
   }
 
-  const prioritizedConnectors = useMemo(() => {
-    const rank = (id: string) => {
-      if (isBaseAccountConnector(id)) return 0;
-      if (id.includes("brave")) return 1;
-      if (id.includes("rabby")) return 2;
-      return 3;
+  const walletConnectors = useMemo(() => {
+    const rank = (connectorId: string) => {
+      const id = connectorId.toLowerCase();
+      if (isBaseAccountConnector(connectorId)) return 0;
+      if (id.includes("rabby")) return 1;
+      if (id.includes("brave")) return 2;
+      if (id.includes("injected")) return 3;
+      return 4;
     };
 
-    return [...connectors].sort((a, b) => rank(a.id) - rank(b.id));
+    const unique = new Map<string, (typeof connectors)[number]>();
+
+    for (const connector of connectors) {
+      const label = getConnectorLabel(connector.id, connector.name);
+      const dedupeKey = `${label}-${connector.type}`;
+      if (!unique.has(dedupeKey)) {
+        unique.set(dedupeKey, connector);
+      }
+    }
+
+    return [...unique.values()].sort((a, b) => rank(a.id) - rank(b.id));
   }, [connectors]);
 
-  const { data: txHash, isPending: txPending, sendTransaction, error: txError } =
-    useSendTransaction();
-  const { isLoading: txConfirming, isSuccess: txConfirmed } =
-    useWaitForTransactionReceipt({ hash: txHash });
+  useEffect(() => {
+    let cancelled = false;
+
+    async function detectAvailability() {
+      const next: Record<string, boolean> = {};
+
+      for (const connector of walletConnectors) {
+        const key = connector.uid;
+
+        if (isBaseAccountConnector(connector.id)) {
+          next[key] = true;
+          continue;
+        }
+
+        if (connector.ready) {
+          next[key] = true;
+          continue;
+        }
+
+        try {
+          const provider = await connector.getProvider();
+          next[key] = Boolean(provider);
+        } catch {
+          next[key] = false;
+        }
+      }
+
+      if (!cancelled) {
+        setConnectorAvailability(next);
+      }
+    }
+
+    void detectAvailability();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [walletConnectors]);
+
+  const {
+    isLoading: startGameConfirming,
+    isSuccess: startGameConfirmed,
+    isError: startGameFailed,
+  } = useWaitForTransactionReceipt({ hash: startGameHash });
+  const {
+    isLoading: submitScoreConfirming,
+    isSuccess: submitScoreConfirmed,
+    isError: submitScoreFailed,
+  } = useWaitForTransactionReceipt({ hash: submitScoreHash });
+
+  useEffect(() => {
+    if (writeHash) {
+      if (gameStateRef.current === "ready" || gameStateRef.current === "gameover") {
+        setStartGameHash(writeHash);
+      } else {
+        setSubmitScoreHash(writeHash);
+      }
+    }
+  }, [writeHash]);
 
   useEffect(() => {
     setLeaderboard(readLeaderboard());
@@ -151,20 +243,31 @@ export function App() {
 
   const isOnBase = chainId === base.id;
   const highScore = leaderboard[0] ?? 0;
+  const startActionPending = writePending || startGameConfirming;
 
   const statusText = useMemo(() => {
     if (!isConnected) return "Connect wallet to begin.";
     if (!isOnBase) return "Switch wallet network to Base.";
-    if (txPending || txConfirming) return "Waiting for transaction confirmation...";
+    if (startActionPending) return "Starting game onchain... confirm in wallet.";
+    if (startGameConfirmed && gameState === "playing") return "Game started onchain. Hop to the top and dodge traffic!";
+    if (startGameFailed) return "startGame transaction failed. Please try again.";
+    if (submitScoreConfirming) return "Submitting score onchain...";
+    if (submitScoreConfirmed) return "Score submitted onchain!";
+    if (submitScoreFailed) return "submitScore transaction failed. You can retry by finishing another round.";
     if (gameState === "playing") return "Hop to the top and dodge traffic!";
-    if (gameState === "gameover") return "Game over. Pay a new transaction to play again.";
-    return "Ready. Pay transaction to start round.";
-  }, [isConnected, isOnBase, txPending, txConfirming, gameState]);
-
-  function withBaseDataSuffix(data?: `0x${string}`): `0x${string}` {
-    if (!data || data === "0x") return BASE_ERC8021_SUFFIX;
-    return `${data}${BASE_ERC8021_SUFFIX.slice(2)}` as `0x${string}`;
-  }
+    if (gameState === "gameover") return "Game over. Pay entry fee to start a new round.";
+    return "Ready. Pay entry fee to call startGame().";
+  }, [
+    gameState,
+    isConnected,
+    isOnBase,
+    startActionPending,
+    startGameConfirmed,
+    startGameFailed,
+    submitScoreConfirming,
+    submitScoreConfirmed,
+    submitScoreFailed,
+  ]);
 
   function ensureAudioContext() {
     if (!audioContextRef.current) {
@@ -228,18 +331,37 @@ export function App() {
     setGameState("gameover");
     effectRef.current.hit = 380;
     playSound("hit");
+
     const finalScore = scoreRef.current;
     const updated = [...leaderboard, finalScore].sort((a, b) => b - a).slice(0, 5);
     setLeaderboard(updated);
     writeLeaderboard(updated);
+
+    if (isConnected && isOnBase) {
+      writeContract(
+        {
+          address: FROGGER_GAME_ADDRESS,
+          abi: FROGGER_GAME_ABI,
+          functionName: "submitScore",
+          args: [BigInt(finalScore)],
+          chainId: base.id,
+          dataSuffix: BASE_ERC8021_SUFFIX,
+        },
+        {
+          onSuccess: (hash) => {
+            setSubmitScoreHash(hash);
+          },
+        }
+      );
+    }
   }
 
   useEffect(() => {
-    if (!txConfirmed || !isConnected) return;
+    if (!startGameConfirmed || !isConnected) return;
     resetGameState();
     setGameState("playing");
     playSound("start");
-  }, [txConfirmed, isConnected]);
+  }, [startGameConfirmed, isConnected]);
 
   function movePlayer(direction: Direction) {
     if (gameStateRef.current !== "playing") return;
@@ -507,22 +629,26 @@ export function App() {
 
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [highScore, leaderboard]);
+  }, [highScore, leaderboard, isConnected, isOnBase]);
 
   function startWithTransaction() {
-    if (!address) return;
+    if (!isConnected || !isOnBase) return;
     ensureAudioContext();
-    const transaction = {
-      to: address,
-      value: parseEther("0.000001"),
-      chainId: base.id,
-      data: undefined as `0x${string}` | undefined,
-    } as const;
-
-    sendTransaction({
-      ...transaction,
-      data: transaction.chainId === base.id ? withBaseDataSuffix(transaction.data) : transaction.data,
-    });
+    writeContract(
+      {
+        address: FROGGER_GAME_ADDRESS,
+        abi: FROGGER_GAME_ABI,
+        functionName: "startGame",
+        chainId: base.id,
+        value: ENTRY_FEE,
+        dataSuffix: BASE_ERC8021_SUFFIX,
+      },
+      {
+        onSuccess: (hash) => {
+          setStartGameHash(hash);
+        },
+      }
+    );
   }
 
   return (
@@ -560,18 +686,18 @@ export function App() {
                   </div>
                   <p className="status">Choose a wallet to continue on Base.</p>
                   <div className="wallet-list">
-                    {prioritizedConnectors.map((connector) => {
+                    {walletConnectors.map((connector) => {
                       const isConnecting = connectPending;
                       const isBaseAccount = isBaseAccountConnector(connector.id);
-                      const isInjectedWallet = !isBaseAccount;
-                      const isDisabled = isBaseAccount ? isConnecting : !connector.ready || isConnecting;
+                      const detected = connectorAvailability[connector.uid] ?? connector.ready;
+                      const isDisabled = isConnecting || (!isBaseAccount && !detected);
                       const walletStatusText = isConnecting
                         ? "Connecting..."
-                        : isInjectedWallet
-                          ? connector.ready
+                        : isBaseAccount
+                          ? "Always available"
+                          : detected
                             ? "Available"
-                            : "Not detected"
-                          : "Available";
+                            : "Not detected";
 
                       return (
                         <button
@@ -595,8 +721,8 @@ export function App() {
           </>
         ) : (
           <div className="row">
-            <button className="primary" onClick={startWithTransaction} disabled={!isOnBase || txPending || txConfirming}>
-              {txPending || txConfirming ? "Confirming..." : "Pay & Start"}
+            <button className="primary" onClick={startWithTransaction} disabled={!isOnBase || startActionPending}>
+              {startActionPending ? "Pending..." : "Pay & Start"}
             </button>
             <button className="secondary" onClick={() => disconnect()}>
               Disconnect
@@ -605,7 +731,7 @@ export function App() {
         )}
 
         {connectError && <p className="error">Wallet connection failed. Try a different wallet option.</p>}
-        {txError && <p className="error">Transaction failed. Try again.</p>}
+        {writeError && <p className="error">Contract transaction failed. Please try again.</p>}
       </section>
 
       <canvas ref={canvasRef} width={CANVAS_WIDTH} height={CANVAS_HEIGHT} className="game" />
