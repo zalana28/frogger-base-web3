@@ -118,7 +118,13 @@ export function App() {
 
   const isOnBase = chainId === base.id;
 
-  const { data: entryFee, isLoading: entryFeeLoading } = useReadContract({
+  const {
+    data: entryFee,
+    isLoading: entryFeeLoading,
+    isError: entryFeeIsError,
+    error: entryFeeError,
+    isFetched: entryFeeFetched,
+  } = useReadContract({
     address: FROGGER_GAME_ADDRESS,
     abi: FROGGER_GAME_ABI,
     functionName: "entryFee",
@@ -127,7 +133,6 @@ export function App() {
       enabled: true,
     },
   });
-
   function isBaseAccountConnector(connectorId: string) {
     return connectorId === "baseAccount" || connectorId === "coinbaseWalletSDK";
   }
@@ -238,7 +243,8 @@ export function App() {
     if (!isConnected) return "Connect wallet to begin.";
     if (!isOnBase) return "Switch wallet network to Base.";
     if (entryFeeLoading) return "Loading onchain entry fee...";
-    if (entryFee === undefined) return "Could not load entry fee from contract.";
+    if (entryFeeIsError) return "Could not load entry fee from contract. Check RPC/contract config and try again.";
+    if (entryFeeFetched && entryFee === undefined) return "Entry fee unavailable from contract response.";
     if (startActionPending) return "Starting game onchain... confirm in wallet.";
     if (startGameConfirmed && gameState === "playing") return "Game started onchain. Hop to the top and dodge traffic!";
     if (startGameFailed) return "startGame transaction failed. Please try again.";
@@ -250,6 +256,8 @@ export function App() {
     return "Ready. Pay entry fee to call startGame().";
   }, [
     entryFee,
+    entryFeeFetched,
+    entryFeeIsError,
     entryFeeLoading,
     gameState,
     isConnected,
@@ -629,7 +637,8 @@ export function App() {
   }, [highScore, leaderboard, isConnected, isOnBase]);
 
   function startWithTransaction() {
-    if (!isConnected || !isOnBase || entryFee === undefined) return;
+    if (!isConnected || !isOnBase || startActionPending) return;
+    if (entryFee === undefined) return;
     ensureAudioContext();
     setStartGameHash(undefined);
     setPendingAction("startGame");
@@ -654,6 +663,24 @@ export function App() {
   }
 
   const entryFeeText = entryFee !== undefined ? `${formatEther(entryFee)} ETH` : "--";
+  const walletDebugText = `wallet_connected=${isConnected ? "yes" : "no"}`;
+  const chainDebugText = `chain_id=${chainId ?? "unknown"} (${isOnBase ? "base" : "not_base"})`;
+  const entryFeeDebugText = entryFeeLoading
+    ? "entry_fee=loading"
+    : entryFeeIsError
+      ? `entry_fee=error (${entryFeeError?.message ?? "unknown"})`
+      : entryFee !== undefined
+        ? `entry_fee=loaded (${entryFee} wei)`
+        : "entry_fee=not_loaded";
+  const txDebugText = startActionPending
+    ? "tx_start_game=pending"
+    : writeError
+      ? `tx_error=${writeError.message}`
+      : submitScoreConfirming
+        ? "tx_submit_score=pending"
+        : submitScoreFailed
+          ? "tx_submit_score=error"
+          : "tx_state=idle";
 
   return (
     <main className="container">
@@ -673,6 +700,10 @@ export function App() {
           <p>State: {gameState}</p>
           <p>Chain: {isOnBase ? "Base" : "Wrong network"}</p>
           <p>Entry Fee: {entryFeeText}</p>
+          <p>Status: {walletDebugText}</p>
+          <p>Status: {chainDebugText}</p>
+          <p>Status: {entryFeeDebugText}</p>
+          <p>Status: {txDebugText}</p>
         </div>
 
         {!isConnected ? (
@@ -726,7 +757,7 @@ export function App() {
           </>
         ) : (
           <div className="row">
-            <button className="primary" onClick={startWithTransaction} disabled={!isOnBase || startActionPending || entryFee === undefined}>
+            <button className="primary" onClick={startWithTransaction} disabled={startActionPending}>
               {startActionPending ? "Pending..." : "Pay & Start"}
             </button>
             <button className="secondary" onClick={() => disconnect()}>
@@ -736,6 +767,9 @@ export function App() {
         )}
 
         {connectError && <p className="error">Wallet connection failed. Try a different wallet option.</p>}
+        {entryFeeIsError && (
+          <p className="error">Failed to load entryFee() from contract. Verify Base network RPC and deployed contract settings.</p>
+        )}
         {writeError && <p className="error">Contract transaction failed. Please try again.</p>}
       </section>
 
