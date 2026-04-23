@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { formatEther } from "viem";
 import { base } from "wagmi/chains";
 import {
   useAccount,
   useConnect,
   useDisconnect,
+  useReadContract,
   useWaitForTransactionReceipt,
   useWriteContract,
 } from "wagmi";
-import { type Address, parseEther } from "viem";
+import { FROGGER_GAME_ABI, FROGGER_GAME_ADDRESS } from "./contracts/froggerGame";
 
 type Direction = "up" | "down" | "left" | "right";
 type GameState = "ready" | "playing" | "gameover";
+type PendingAction = "startGame" | "submitScore" | null;
 
 type Car = {
   x: number;
@@ -47,26 +50,6 @@ const BASE_ERC8021_SUFFIX =
   "0x62635f373172746e3775680b0080218021802180218021802180218021" as const;
 
 const LEADERBOARD_KEY = "frogger-base-leaderboard";
-const FROGGER_GAME_ADDRESS = "0xE350ABB29d75733Ae1867989E3f7b464C1320AE" as Address;
-const ENTRY_FEE = parseEther("0.000001");
-
-const FROGGER_GAME_ABI = [
-  {
-    type: "function",
-    name: "startGame",
-    stateMutability: "payable",
-    inputs: [],
-    outputs: [],
-  },
-  {
-    type: "function",
-    name: "submitScore",
-    stateMutability: "nonpayable",
-    inputs: [{ name: "score", type: "uint256" }],
-    outputs: [],
-  },
-] as const;
-
 const CAR_COLORS = ["#e63946", "#f4a261", "#3a86ff", "#8338ec", "#ffbe0b"];
 
 function createCars(difficulty = 1): Car[] {
@@ -121,7 +104,7 @@ export function App() {
   const { address, isConnected, chainId } = useAccount();
   const { connect, connectors, isPending: connectPending, error: connectError } = useConnect();
   const { disconnect } = useDisconnect();
-  const { writeContract, data: writeHash, error: writeError, isPending: writePending } = useWriteContract();
+  const { writeContract, error: writeError, isPending: writePending } = useWriteContract();
 
   const [score, setScore] = useState(0);
   const [level, setLevel] = useState(1);
@@ -131,6 +114,19 @@ export function App() {
   const [connectorAvailability, setConnectorAvailability] = useState<Record<string, boolean>>({});
   const [startGameHash, setStartGameHash] = useState<`0x${string}` | undefined>();
   const [submitScoreHash, setSubmitScoreHash] = useState<`0x${string}` | undefined>();
+  const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+
+  const isOnBase = chainId === base.id;
+
+  const { data: entryFee, isLoading: entryFeeLoading } = useReadContract({
+    address: FROGGER_GAME_ADDRESS,
+    abi: FROGGER_GAME_ABI,
+    functionName: "entryFee",
+    chainId: base.id,
+    query: {
+      enabled: true,
+    },
+  });
 
   function isBaseAccountConnector(connectorId: string) {
     return connectorId === "baseAccount" || connectorId === "coinbaseWalletSDK";
@@ -140,19 +136,20 @@ export function App() {
     const normalizedId = connectorId.toLowerCase();
     const normalizedName = connectorName.toLowerCase();
     if (isBaseAccountConnector(connectorId)) return "Sign in with Base";
-    if (normalizedId.includes("brave") || normalizedName.includes("brave")) return "Brave Wallet";
     if (normalizedId.includes("rabby") || normalizedName.includes("rabby")) return "Rabby Wallet";
-    if (normalizedName.includes("injected")) return "Injected Wallet";
+    if (normalizedId.includes("brave") || normalizedName.includes("brave")) return "Brave Wallet";
+    if (normalizedName.includes("injected")) return "Browser Wallet";
     return connectorName;
   }
 
   const walletConnectors = useMemo(() => {
-    const rank = (connectorId: string) => {
-      const id = connectorId.toLowerCase();
+    const rank = (connectorId: string, connectorName: string) => {
       if (isBaseAccountConnector(connectorId)) return 0;
-      if (id.includes("rabby")) return 1;
-      if (id.includes("brave")) return 2;
-      if (id.includes("injected")) return 3;
+      const id = connectorId.toLowerCase();
+      const name = connectorName.toLowerCase();
+      if (id.includes("rabby") || name.includes("rabby")) return 1;
+      if (id.includes("brave") || name.includes("brave")) return 2;
+      if (id.includes("injected") || name.includes("injected")) return 3;
       return 4;
     };
 
@@ -160,13 +157,12 @@ export function App() {
 
     for (const connector of connectors) {
       const label = getConnectorLabel(connector.id, connector.name);
-      const dedupeKey = `${label}-${connector.type}`;
-      if (!unique.has(dedupeKey)) {
-        unique.set(dedupeKey, connector);
+      if (!unique.has(label)) {
+        unique.set(label, connector);
       }
     }
 
-    return [...unique.values()].sort((a, b) => rank(a.id) - rank(b.id));
+    return [...unique.values()].sort((a, b) => rank(a.id, a.name) - rank(b.id, b.name));
   }, [connectors]);
 
   useEffect(() => {
@@ -220,14 +216,8 @@ export function App() {
   } = useWaitForTransactionReceipt({ hash: submitScoreHash });
 
   useEffect(() => {
-    if (writeHash) {
-      if (gameStateRef.current === "ready" || gameStateRef.current === "gameover") {
-        setStartGameHash(writeHash);
-      } else {
-        setSubmitScoreHash(writeHash);
-      }
-    }
-  }, [writeHash]);
+    if (!writePending) setPendingAction(null);
+  }, [writePending]);
 
   useEffect(() => {
     setLeaderboard(readLeaderboard());
@@ -241,13 +231,14 @@ export function App() {
     scoreRef.current = score;
   }, [score]);
 
-  const isOnBase = chainId === base.id;
   const highScore = leaderboard[0] ?? 0;
-  const startActionPending = writePending || startGameConfirming;
+  const startActionPending = pendingAction === "startGame" || startGameConfirming;
 
   const statusText = useMemo(() => {
     if (!isConnected) return "Connect wallet to begin.";
     if (!isOnBase) return "Switch wallet network to Base.";
+    if (entryFeeLoading) return "Loading onchain entry fee...";
+    if (entryFee === undefined) return "Could not load entry fee from contract.";
     if (startActionPending) return "Starting game onchain... confirm in wallet.";
     if (startGameConfirmed && gameState === "playing") return "Game started onchain. Hop to the top and dodge traffic!";
     if (startGameFailed) return "startGame transaction failed. Please try again.";
@@ -258,6 +249,8 @@ export function App() {
     if (gameState === "gameover") return "Game over. Pay entry fee to start a new round.";
     return "Ready. Pay entry fee to call startGame().";
   }, [
+    entryFee,
+    entryFeeLoading,
     gameState,
     isConnected,
     isOnBase,
@@ -338,6 +331,7 @@ export function App() {
     writeLeaderboard(updated);
 
     if (isConnected && isOnBase) {
+      setPendingAction("submitScore");
       writeContract(
         {
           address: FROGGER_GAME_ADDRESS,
@@ -350,6 +344,9 @@ export function App() {
         {
           onSuccess: (hash) => {
             setSubmitScoreHash(hash);
+          },
+          onError: () => {
+            setPendingAction(null);
           },
         }
       );
@@ -632,24 +629,31 @@ export function App() {
   }, [highScore, leaderboard, isConnected, isOnBase]);
 
   function startWithTransaction() {
-    if (!isConnected || !isOnBase) return;
+    if (!isConnected || !isOnBase || entryFee === undefined) return;
     ensureAudioContext();
+    setStartGameHash(undefined);
+    setPendingAction("startGame");
     writeContract(
       {
         address: FROGGER_GAME_ADDRESS,
         abi: FROGGER_GAME_ABI,
         functionName: "startGame",
         chainId: base.id,
-        value: ENTRY_FEE,
+        value: entryFee,
         dataSuffix: BASE_ERC8021_SUFFIX,
       },
       {
         onSuccess: (hash) => {
           setStartGameHash(hash);
         },
+        onError: () => {
+          setPendingAction(null);
+        },
       }
     );
   }
+
+  const entryFeeText = entryFee !== undefined ? `${formatEther(entryFee)} ETH` : "--";
 
   return (
     <main className="container">
@@ -668,6 +672,7 @@ export function App() {
           <p>Level: {level}</p>
           <p>State: {gameState}</p>
           <p>Chain: {isOnBase ? "Base" : "Wrong network"}</p>
+          <p>Entry Fee: {entryFeeText}</p>
         </div>
 
         {!isConnected ? (
@@ -721,7 +726,7 @@ export function App() {
           </>
         ) : (
           <div className="row">
-            <button className="primary" onClick={startWithTransaction} disabled={!isOnBase || startActionPending}>
+            <button className="primary" onClick={startWithTransaction} disabled={!isOnBase || startActionPending || entryFee === undefined}>
               {startActionPending ? "Pending..." : "Pay & Start"}
             </button>
             <button className="secondary" onClick={() => disconnect()}>
