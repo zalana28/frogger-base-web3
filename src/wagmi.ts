@@ -7,15 +7,13 @@ export const wagmiConfig = createConfig({
   connectors: [
     baseAccount({
       appName: "Base Frogger DX",
-      preference: {
-        options: "smartWalletOnly",
-      },
     }),
-    injected({ target: "braveWallet" }),
-    injected({ target: "rabby" }),
-    injected(),
+    injected({ target: "braveWallet", unstable_shimAsyncInject: true }),
+    injected({ target: "rabby", unstable_shimAsyncInject: true }),
+    injected({ unstable_shimAsyncInject: true }),
   ],
   transports: {
     [base.id]: http(),
   },
+  multiInjectedProviderDiscovery: true,
 });
