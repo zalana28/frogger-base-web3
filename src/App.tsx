@@ -100,13 +100,33 @@ export function App() {
   const audioContextRef = useRef<AudioContext | null>(null);
 
   const { address, isConnected, chainId } = useAccount();
-  const { connect, connectors, isPending: connectPending } = useConnect();
+  const { connect, connectors, isPending: connectPending, error: connectError } = useConnect();
   const { disconnect } = useDisconnect();
 
   const [score, setScore] = useState(0);
   const [level, setLevel] = useState(1);
   const [gameState, setGameState] = useState<GameState>("ready");
   const [leaderboard, setLeaderboard] = useState<number[]>([]);
+
+  const [walletModalOpen, setWalletModalOpen] = useState(false);
+
+  function getConnectorLabel(connectorId: string, connectorName: string) {
+    if (connectorId === "coinbaseWalletSDK") return "Sign in with Base";
+    if (connectorId.includes("brave")) return "Brave Wallet";
+    if (connectorId.includes("rabby")) return "Rabby";
+    return connectorName;
+  }
+
+  const prioritizedConnectors = useMemo(() => {
+    const rank = (id: string) => {
+      if (id === "coinbaseWalletSDK") return 0;
+      if (id.includes("brave")) return 1;
+      if (id.includes("rabby")) return 2;
+      return 3;
+    };
+
+    return [...connectors].sort((a, b) => rank(a.id) - rank(b.id));
+  }, [connectors]);
 
   const { data: txHash, isPending: txPending, sendTransaction, error: txError } =
     useSendTransaction();
@@ -521,13 +541,43 @@ export function App() {
         </div>
 
         {!isConnected ? (
-          <button
-            className="primary"
-            onClick={() => connect({ connector: connectors[0] })}
-            disabled={connectPending || connectors.length === 0}
-          >
-            {connectPending ? "Connecting..." : "Connect Wallet"}
-          </button>
+          <>
+            <button className="primary" onClick={() => setWalletModalOpen(true)}>
+              Connect Wallet
+            </button>
+            {walletModalOpen && (
+              <div className="wallet-modal-overlay" onClick={() => setWalletModalOpen(false)} role="presentation">
+                <div className="wallet-modal card" role="dialog" aria-modal="true" aria-label="Connect wallet" onClick={(event) => event.stopPropagation()}>
+                  <div className="wallet-modal-header">
+                    <h2>Connect Wallet</h2>
+                    <button className="secondary" onClick={() => setWalletModalOpen(false)} aria-label="Close wallet modal">
+                      Close
+                    </button>
+                  </div>
+                  <p className="status">Choose a wallet to continue on Base.</p>
+                  <div className="wallet-list">
+                    {prioritizedConnectors.map((connector) => {
+                      const isConnecting = connectPending;
+                      return (
+                        <button
+                          key={connector.uid}
+                          className={`wallet-option ${connector.id === "coinbaseWalletSDK" ? "primary" : "secondary"}`}
+                          onClick={() => {
+                            connect({ connector });
+                            setWalletModalOpen(false);
+                          }}
+                          disabled={!connector.ready || isConnecting}
+                        >
+                          <span>{getConnectorLabel(connector.id, connector.name)}</span>
+                          <small>{isConnecting ? "Connecting..." : connector.ready ? "Available" : "Not detected"}</small>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
         ) : (
           <div className="row">
             <button className="primary" onClick={startWithTransaction} disabled={!isOnBase || txPending || txConfirming}>
@@ -539,6 +589,7 @@ export function App() {
           </div>
         )}
 
+        {connectError && <p className="error">Wallet connection failed. Try a different wallet option.</p>}
         {txError && <p className="error">Transaction failed. Try again.</p>}
       </section>
 
