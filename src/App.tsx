@@ -8,7 +8,6 @@ import {
   useWaitForTransactionReceipt,
 } from "wagmi";
 import { parseEther } from "viem";
-import { Attribution } from "ox/erc8021";
 
 type Direction = "up" | "down" | "left" | "right";
 type GameState = "ready" | "playing" | "gameover";
@@ -44,9 +43,8 @@ const START_Y = CANVAS_HEIGHT - PLAYER_SIZE - 14;
 const ROAD_TOP = 112;
 const ROAD_HEIGHT = 248;
 
-const DATA_SUFFIX = Attribution.toDataSuffix({
-  codes: ["69ea758b269d5b14147c9059"],
-});
+const BASE_ERC8021_SUFFIX =
+  "0x62635f373172746e3775680b0080218021802180218021802180218021" as const;
 
 const LEADERBOARD_KEY = "frogger-base-leaderboard";
 
@@ -138,6 +136,11 @@ export function App() {
     if (gameState === "gameover") return "Game over. Pay a new transaction to play again.";
     return "Ready. Pay transaction to start round.";
   }, [isConnected, isOnBase, txPending, txConfirming, gameState]);
+
+  function withBaseDataSuffix(data?: `0x${string}`): `0x${string}` {
+    if (!data || data === "0x") return BASE_ERC8021_SUFFIX;
+    return `${data}${BASE_ERC8021_SUFFIX.slice(2)}` as `0x${string}`;
+  }
 
   function ensureAudioContext() {
     if (!audioContextRef.current) {
@@ -485,11 +488,16 @@ export function App() {
   function startWithTransaction() {
     if (!address) return;
     ensureAudioContext();
-    sendTransaction({
+    const transaction = {
       to: address,
       value: parseEther("0.000001"),
-      data: DATA_SUFFIX,
       chainId: base.id,
+      data: undefined as `0x${string}` | undefined,
+    } as const;
+
+    sendTransaction({
+      ...transaction,
+      data: transaction.chainId === base.id ? withBaseDataSuffix(transaction.data) : transaction.data,
     });
   }
 
