@@ -1,6 +1,7 @@
 import { type Address } from "viem";
 
-export const FROGGER_GAME_ADDRESS = "0xe350abb29d75733ae1867989e3f7b464c1320ae" as Address;
+export const FROGGER_GAME_ADDRESS =
+  "0xef350abb29d75733ae1867989e3f7b464c1320ae" as Address;
 
 export const FROGGER_GAME_ABI = [
   {
