@@ -110,8 +110,12 @@ export function App() {
 
   const [walletModalOpen, setWalletModalOpen] = useState(false);
 
+  function isBaseAccountConnector(connectorId: string) {
+    return connectorId === "baseAccount" || connectorId === "coinbaseWalletSDK";
+  }
+
   function getConnectorLabel(connectorId: string, connectorName: string) {
-    if (connectorId === "coinbaseWalletSDK") return "Sign in with Base";
+    if (isBaseAccountConnector(connectorId)) return "Sign in with Base";
     if (connectorId.includes("brave")) return "Brave Wallet";
     if (connectorId.includes("rabby")) return "Rabby";
     return connectorName;
@@ -119,7 +123,7 @@ export function App() {
 
   const prioritizedConnectors = useMemo(() => {
     const rank = (id: string) => {
-      if (id === "coinbaseWalletSDK") return 0;
+      if (isBaseAccountConnector(id)) return 0;
       if (id.includes("brave")) return 1;
       if (id.includes("rabby")) return 2;
       return 3;
@@ -558,18 +562,29 @@ export function App() {
                   <div className="wallet-list">
                     {prioritizedConnectors.map((connector) => {
                       const isConnecting = connectPending;
+                      const isBaseAccount = isBaseAccountConnector(connector.id);
+                      const isInjectedWallet = !isBaseAccount;
+                      const isDisabled = isBaseAccount ? isConnecting : !connector.ready || isConnecting;
+                      const walletStatusText = isConnecting
+                        ? "Connecting..."
+                        : isInjectedWallet
+                          ? connector.ready
+                            ? "Available"
+                            : "Not detected"
+                          : "Available";
+
                       return (
                         <button
                           key={connector.uid}
-                          className={`wallet-option ${connector.id === "coinbaseWalletSDK" ? "primary" : "secondary"}`}
+                          className={`wallet-option ${isBaseAccount ? "primary" : "secondary"}`}
                           onClick={() => {
                             connect({ connector });
                             setWalletModalOpen(false);
                           }}
-                          disabled={!connector.ready || isConnecting}
+                          disabled={isDisabled}
                         >
                           <span>{getConnectorLabel(connector.id, connector.name)}</span>
-                          <small>{isConnecting ? "Connecting..." : connector.ready ? "Available" : "Not detected"}</small>
+                          <small>{walletStatusText}</small>
                         </button>
                       );
                     })}
