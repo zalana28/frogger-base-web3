@@ -153,6 +153,11 @@ button:disabled {
   font-size: 0.68rem;
 }
 
+.status a {
+  color: #93c5fd;
+  word-break: break-all;
+}
+
 ol {
   margin: 0;
   padding-left: 18px;
