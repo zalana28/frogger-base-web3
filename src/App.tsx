@@ -101,6 +101,16 @@ export function App() {
   const effectRef = useRef({ hit: 0, success: 0, time: 0 });
   const audioContextRef = useRef<AudioContext | null>(null);
 
+  // Refs mirroring render state so the RAF loop never reads stale values
+  // and never needs to restart when wallet/leaderboard state changes.
+  const leaderboardRef = useRef<number[]>([]);
+  const highScoreRef = useRef(0);
+  const isConnectedRef = useRef(false);
+  const isOnBaseRef = useRef(false);
+  // Guards against duplicate onchain transactions.
+  const startTxInFlightRef = useRef(false);
+  const consumedStartHashRef = useRef<string | null>(null);
+
   const { address, isConnected, chainId } = useAccount();
   const { connect, connectors, isPending: connectPending, error: connectError } = useConnect();
   const { disconnect } = useDisconnect();
@@ -237,7 +247,30 @@ export function App() {
   }, [score]);
 
   const highScore = leaderboard[0] ?? 0;
+
+  useEffect(() => {
+    leaderboardRef.current = leaderboard;
+    highScoreRef.current = highScore;
+  }, [leaderboard, highScore]);
+
+  useEffect(() => {
+    isConnectedRef.current = isConnected;
+    isOnBaseRef.current = isOnBase;
+  }, [isConnected, isOnBase]);
   const startActionPending = pendingAction === "startGame" || startGameConfirming;
+  // Pay & Start is only allowed when wallet is connected, on Base, the entry
+  // fee has loaded from the contract, and no startGame tx is in flight.
+  const canStart =
+    isConnected && isOnBase && entryFee !== undefined && !startActionPending;
+
+  // Clear the in-flight guard if the start tx reverted/was rejected so the
+  // player can retry.
+  useEffect(() => {
+    if (startGameFailed) {
+      startTxInFlightRef.current = false;
+      setPendingAction(null);
+    }
+  }, [startGameFailed]);
 
   const statusText = useMemo(() => {
     if (!isConnected) return "Connect wallet to begin.";
@@ -329,16 +362,22 @@ export function App() {
   }
 
   function finishGame() {
+    // Guard against the RAF loop calling this on multiple frames before the
+    // gameState React update has propagated back into gameStateRef. Without
+    // this, a single collision could fire submitScore several times.
+    if (gameStateRef.current !== "playing") return;
+    gameStateRef.current = "gameover";
+
     setGameState("gameover");
     effectRef.current.hit = 380;
     playSound("hit");
 
     const finalScore = scoreRef.current;
-    const updated = [...leaderboard, finalScore].sort((a, b) => b - a).slice(0, 5);
+    const updated = [...leaderboardRef.current, finalScore].sort((a, b) => b - a).slice(0, 5);
     setLeaderboard(updated);
     writeLeaderboard(updated);
 
-    if (isConnected && isOnBase) {
+    if (isConnectedRef.current && isOnBaseRef.current) {
       setPendingAction("submitScore");
       writeContract(
         {
@@ -362,11 +401,17 @@ export function App() {
   }
 
   useEffect(() => {
-    if (!startGameConfirmed || !isConnected) return;
+    if (!startGameConfirmed || !isConnected || !startGameHash) return;
+    // Only react to each confirmed hash once so unrelated re-renders can't
+    // restart gameplay or wipe an in-progress run.
+    if (consumedStartHashRef.current === startGameHash) return;
+    consumedStartHashRef.current = startGameHash;
+    startTxInFlightRef.current = false;
     resetGameState();
+    gameStateRef.current = "playing";
     setGameState("playing");
     playSound("start");
-  }, [startGameConfirmed, isConnected]);
+  }, [startGameConfirmed, isConnected, startGameHash]);
 
   function movePlayer(direction: Direction) {
     if (gameStateRef.current !== "playing") return;
@@ -572,7 +617,7 @@ export function App() {
       ctx.textAlign = "left";
       ctx.fillText(`SCORE ${scoreRef.current}`, 10, 18);
       ctx.textAlign = "right";
-      ctx.fillText(`BEST ${highScore}`, CANVAS_WIDTH - 10, 18);
+      ctx.fillText(`BEST ${highScoreRef.current}`, CANVAS_WIDTH - 10, 18);
     };
 
     const tick = (time: number) => {
@@ -634,13 +679,19 @@ export function App() {
 
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [highScore, leaderboard, isConnected, isOnBase]);
+    // Runs once; the loop reads live state through refs so it never restarts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function startWithTransaction() {
-    if (!isConnected || !isOnBase || startActionPending) return;
-    if (entryFee === undefined) return;
+    // Hard guard against duplicate startGame txs: synchronous ref check beats
+    // the async pending state which lags a render behind the click.
+    if (startTxInFlightRef.current) return;
+    if (!canStart || entryFee === undefined) return;
+    startTxInFlightRef.current = true;
     ensureAudioContext();
     setStartGameHash(undefined);
+    consumedStartHashRef.current = null;
     setPendingAction("startGame");
     writeContract(
       {
@@ -656,6 +707,7 @@ export function App() {
           setStartGameHash(hash);
         },
         onError: () => {
+          startTxInFlightRef.current = false;
           setPendingAction(null);
         },
       }
@@ -757,13 +809,37 @@ export function App() {
           </>
         ) : (
           <div className="row">
-            <button className="primary" onClick={startWithTransaction} disabled={startActionPending}>
+            <button className="primary" onClick={startWithTransaction} disabled={!canStart}>
               {startActionPending ? "Pending..." : "Pay & Start"}
             </button>
             <button className="secondary" onClick={() => disconnect()}>
               Disconnect
             </button>
           </div>
+        )}
+
+        {isConnected && !isOnBase && (
+          <p className="error">Wrong network. Switch your wallet to Base to play.</p>
+        )}
+
+        {startGameHash && (
+          <p className="status">
+            startGame tx:{" "}
+            <a href={`https://basescan.org/tx/${startGameHash}`} target="_blank" rel="noreferrer">
+              {startGameHash.slice(0, 10)}...{startGameHash.slice(-8)}
+            </a>
+            {startGameConfirming ? " (confirming...)" : startGameConfirmed ? " (confirmed)" : ""}
+          </p>
+        )}
+
+        {submitScoreHash && (
+          <p className="status">
+            submitScore tx:{" "}
+            <a href={`https://basescan.org/tx/${submitScoreHash}`} target="_blank" rel="noreferrer">
+              {submitScoreHash.slice(0, 10)}...{submitScoreHash.slice(-8)}
+            </a>
+            {submitScoreConfirming ? " (confirming...)" : submitScoreConfirmed ? " (confirmed)" : ""}
+          </p>
         )}
 
         {connectError && <p className="error">Wallet connection failed. Try a different wallet option.</p>}
@@ -787,6 +863,7 @@ export function App() {
       <button
         className="secondary full"
         onClick={() => {
+          gameStateRef.current = "ready";
           setGameState("ready");
           resetGameState();
         }}
