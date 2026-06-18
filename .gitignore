@@ -1,23 +1,32 @@
-# dependencies
+# Dependencies
 node_modules/
 
-# build output
+# Build output
 dist/
-
-# typescript build cache
+tsconfig.app.tsbuildinfo
 *.tsbuildinfo
 
-# logs
+# Logs
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
 
-# editor / OS
+# Editor / OS
 .DS_Store
 .vscode/
 .idea/
+*.swp
+*.swo
 
-# env
+# Env
 .env
 .env.local
 .env.*.local
+
+# Vite
+.vite/
+
+# Foundry (contract artifacts)
+cache/
+out/
