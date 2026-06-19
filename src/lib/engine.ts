@@ -1,15 +1,37 @@
-// Base Frogger DX — Game Engine
+// Base Frogger DX — Game Engine (Enhanced Graphics)
 // Self-contained module. Call `createEngine(canvas, callbacks)` to get an engine instance.
 
 import {
   CANVAS_WIDTH, CANVAS_HEIGHT, PLAYER_SIZE, STEP, GOAL_LINE,
   ROAD_TOP, ROAD_HEIGHT,
   createCars, createInitialFrog, drawCar, drawFrog,
+  drawFrogGlow, drawParticles, drawFirefly, drawLilyPad,
+  createFireflies, createWaterSparkles, createLilyPads,
+  spawnExplosion, spawnSparkles, updateParticles,
 } from './sprites.js';
+import type { Particle, Firefly, WaterSparkle, LilyPad } from './sprites.js';
 import { playSound } from './audio.js';
 
 // ---- Constants ----
 const STATE = { MENU: 0, PLAY: 1, PAUSE: 2, OVER: 3 };
+
+// Pre-generate grass decoration positions (deterministic)
+const GRASS_FLOWERS: Array<{ x: number; y: number; color: string }> = [];
+const GRASS_TUFTS: Array<{ x: number; y: number }> = [];
+{
+  // Flowers on top grass
+  for (let i = 0; i < 6; i++) {
+    GRASS_FLOWERS.push({ x: 20 + i * 58, y: 30 + (i % 3) * 12, color: i % 2 === 0 ? '#f472b6' : '#fbbf24' });
+  }
+  // Flowers on bottom grass
+  for (let i = 0; i < 8; i++) {
+    GRASS_FLOWERS.push({ x: 15 + i * 44, y: 375 + (i % 3) * 20, color: i % 2 === 0 ? '#c084fc' : '#fb923c' });
+  }
+  // Tufts
+  for (let i = 0; i < 12; i++) {
+    GRASS_TUFTS.push({ x: 10 + i * 30, y: i < 6 ? 50 + (i % 3) * 10 : 400 + (i % 4) * 15 });
+  }
+}
 
 // ---- Factory ----
 
@@ -44,6 +66,14 @@ export function createEngine(
   let effectSuccess = 0;
   let effectTime = 0;
 
+  // Particles
+  let particles: Particle[] = [];
+
+  // Ambient
+  let fireflies: Firefly[] = [];
+  let waterSparkles: WaterSparkle[] = [];
+  let lilyPads: LilyPad[] = [];
+
   // Input
   type Direction = 'up' | 'down' | 'left' | 'right';
   const keys = { up: false, down: false, left: false, right: false };
@@ -61,10 +91,23 @@ export function createEngine(
     cb.onScoreChange?.(score, level);
   }
 
+  function initAmbient() {
+    fireflies = createFireflies();
+    waterSparkles = createWaterSparkles();
+    lilyPads = createLilyPads();
+  }
+
   function finishGame() {
     state = STATE.OVER;
     effectHit = 380;
     playSound('hit');
+    // Explosion particles on death
+    spawnExplosion(
+      particles,
+      frogRef.x + PLAYER_SIZE / 2,
+      frogRef.y + PLAYER_SIZE / 2,
+      ['#ff6b6b', '#ffd93d', '#ff6b6b', '#fff'],
+    );
     if (score > highScore) {
       highScore = score;
       try { localStorage.setItem('frogger-base-high-score', String(highScore)); } catch { /* ignore */ }
@@ -106,7 +149,7 @@ export function createEngine(
     ctx.imageSmoothingEnabled = false;
     ctx.clearRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // Background gradient
+    // 1. Background gradient
     const gradient = ctx.createLinearGradient(0, 0, 0, CANVAS_HEIGHT);
     gradient.addColorStop(0, '#0f3f2f');
     gradient.addColorStop(0.35, '#22635d');
@@ -115,18 +158,35 @@ export function createEngine(
     ctx.fillStyle = gradient;
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // Grass
+    // 2. Grass zones
     ctx.fillStyle = '#3f9b45';
     ctx.fillRect(0, 0, CANVAS_WIDTH, 78);
     ctx.fillRect(0, 362, CANVAS_WIDTH, 118);
 
-    // Road
+    // 2b. Grass tufts
+    for (const tuft of GRASS_TUFTS) {
+      ctx.fillStyle = '#2f855a';
+      ctx.fillRect(tuft.x, tuft.y, 2, 4);
+      ctx.fillRect(tuft.x + 3, tuft.y - 1, 2, 3);
+      ctx.fillRect(tuft.x - 2, tuft.y + 1, 2, 3);
+    }
+
+    // 2c. Grass flowers
+    for (const flower of GRASS_FLOWERS) {
+      ctx.fillStyle = flower.color;
+      ctx.fillRect(flower.x, flower.y, 3, 3);
+      ctx.fillStyle = '#fde68a';
+      ctx.fillRect(flower.x + 1, flower.y + 1, 1, 1);
+    }
+
+    // 3. Road + road dashes + road edge lines
     ctx.fillStyle = '#15191e';
     ctx.fillRect(0, ROAD_TOP, CANVAS_WIDTH, ROAD_HEIGHT);
 
-    // Water
-    ctx.fillStyle = '#1d4ed8';
-    ctx.fillRect(0, 80, CANVAS_WIDTH, 26);
+    // Road edge lines (top and bottom)
+    ctx.fillStyle = '#fbbf24';
+    ctx.fillRect(0, ROAD_TOP, CANVAS_WIDTH, 2);
+    ctx.fillRect(0, ROAD_TOP + ROAD_HEIGHT - 2, CANVAS_WIDTH, 2);
 
     // Road dashes
     for (let y = ROAD_TOP + 36; y < ROAD_TOP + ROAD_HEIGHT; y += 48) {
@@ -136,18 +196,58 @@ export function createEngine(
       }
     }
 
-    // Grass edge tiles
+    // 4. Water + water sparkles + lily pads
+    ctx.fillStyle = '#1d4ed8';
+    ctx.fillRect(0, 80, CANVAS_WIDTH, 26);
+
+    // Water wave shimmer
+    for (let x = 0; x < CANVAS_WIDTH; x += 6) {
+      const waveAlpha = (Math.sin(time / 300 + x / 20) + 1) / 2 * 0.12;
+      ctx.fillStyle = `rgba(147,197,253,${waveAlpha})`;
+      ctx.fillRect(x, 80 + Math.sin(time / 500 + x / 15) * 2, 6, 2);
+    }
+
+    // Water sparkles
+    for (const sp of waterSparkles) {
+      const alpha = (Math.sin(time / 350 + sp.phase) + 1) / 2;
+      if (alpha > 0.3) {
+        ctx.fillStyle = `rgba(255,255,255,${alpha * 0.7})`;
+        ctx.fillRect(Math.round(sp.x), Math.round(sp.y), 2, 2);
+      }
+    }
+
+    // Lily pads
+    for (const pad of lilyPads) {
+      drawLilyPad(ctx, pad, time);
+    }
+
+    // 5. Grass edge tiles (bottom)
     for (let x = 0; x < CANVAS_WIDTH; x += 12) {
       ctx.fillStyle = x % 24 === 0 ? '#2f855a' : '#256d48';
       ctx.fillRect(x, 0, 12, 12);
       ctx.fillRect(x, 468, 12, 12);
     }
 
-    // Entities
+    // 6. Fireflies
+    for (const fly of fireflies) {
+      drawFirefly(ctx, fly, time);
+    }
+
+    // 7. Cars
     for (const car of cars) drawCar(ctx, car, time);
+
+    // 8. Frog glow (under frog, only during play)
+    if (state === STATE.PLAY) {
+      drawFrogGlow(ctx, frogRef, time);
+    }
+
+    // 9. Frog
     drawFrog(ctx, frogRef, effectTime);
 
-    // Success flash
+    // 10. Particles (on top of everything)
+    drawParticles(ctx, particles);
+
+    // 11. Success flash
     if (effectSuccess > 0) {
       ctx.fillStyle = `rgba(255,255,255,${Math.min(0.65, effectSuccess / 240)})`;
       ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -157,7 +257,7 @@ export function createEngine(
       ctx.fillText('+1 NICE!', CANVAS_WIDTH / 2, 56);
     }
 
-    // Hit ring
+    // 11b. Hit ring
     if (effectHit > 0) {
       const r = 20 + (380 - effectHit) * 0.1;
       ctx.strokeStyle = `rgba(248,113,113,${effectHit / 420})`;
@@ -167,7 +267,7 @@ export function createEngine(
       ctx.stroke();
     }
 
-    // HUD text on canvas
+    // 12. HUD text on canvas
     ctx.fillStyle = '#f8fafc';
     ctx.font = "10px 'Press Start 2P', monospace";
     ctx.textAlign = 'left';
@@ -180,6 +280,15 @@ export function createEngine(
 
   function update(time: number, delta: number) {
     effectTime += delta;
+
+    // Update particles
+    updateParticles(particles, delta);
+
+    // Update fireflies
+    for (const fly of fireflies) {
+      fly.x = fly.baseX + Math.sin(time / 1000 * fly.speed + fly.phase) * 20;
+      fly.y = fly.baseY + Math.cos(time / 1300 * fly.speed + fly.phase) * 8;
+    }
 
     const frog = frogRef;
     if (frog.hopTimer > 0) {
@@ -219,6 +328,13 @@ export function createEngine(
       // Reached goal!
       effectSuccess = 220;
       playSound('score');
+      // Sparkle particles on score
+      spawnSparkles(
+        particles,
+        frog.x + PLAYER_SIZE / 2,
+        frog.y + PLAYER_SIZE / 2,
+        ['#22c55e', '#4ade80', '#fbbf24', '#fff'],
+      );
       score += 1;
       if (score % 3 === 0) {
         level = Math.min(9, Math.floor(score / 3) + 1);
@@ -271,6 +387,11 @@ export function createEngine(
     effectHit = 0;
     effectSuccess = 0;
     effectTime = 0;
+    particles = [];
+
+    // Initialize ambient elements on each game start
+    initAmbient();
+
     notifyHUD();
   }
 
