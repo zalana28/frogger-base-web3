@@ -1,16 +1,14 @@
 import { useCallback } from 'react';
 import { useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import type { Address, Abi } from 'viem';
-import { DATA_SUFFIX } from '../config/wagmi.js';
 
 /**
- * useBuilderCodeTransaction — sends a contract write with the Base Builder Code
- * (ERC-8021) suffix appended to the calldata, so the Base indexer attributes
- * the onchain activity to this app.
+ * useBuilderCodeTransaction — sends a contract write via wagmi's useWriteContract.
  *
- * Uses `useWriteContract` + per-call `dataSuffix`. The suffix is appended
- * directly to the calldata by viem (`concat([data, dataSuffix])`), so it works
- * identically for Coinbase Smart Wallet, MetaMask, and any EOA.
+ * ERC-8021 builder code attribution is handled natively by the Base Account SDK
+ * (configured in `baseAccountConnector.ts` via `preference.attribution.dataSuffix`).
+ * The SDK appends the builder code to initCode and executeBatch calldata — deeper
+ * and more reliable than a per-call calldata suffix.
  *
  * https://docs.base.org/apps/builder-codes/builder-codes
  */
@@ -51,8 +49,6 @@ export function useBuilderCodeTransaction({
           chainId,
           // Send ETH value (for payable functions like recordPlay/submitScore)
           value: options?.value,
-          // Append ERC-8021 builder code suffix to calldata.
-          dataSuffix: DATA_SUFFIX,
         });
       } catch {
         // Error state is exposed via `writeError` from useWriteContract.
