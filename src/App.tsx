@@ -8,10 +8,11 @@ import Leaderboard from './components/Leaderboard';
 
 /**
  * Game phases:
- *  'wallet' — show WalletGate (must connect + recordPlay before playing)
- *  'playing' — game is active
- *  'paused' — game is paused
- *  'over' — game over screen
+ *  'wallet'   — show WalletGate (must connect + recordPlay before playing)
+ *  'starting' — re-arm a game session via recordPlay() before another play
+ *  'playing'  — game is active
+ *  'paused'   — game is paused
+ *  'over'     — game over screen
  *  'leaderboard' — leaderboard overlay (on top of wallet or over)
  */
 export default function App() {
@@ -55,9 +56,16 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey);
   }, [phase, showLB]);
 
-  // Play again (from game over)
+  // Play again (from game over) — must re-arm a game session via recordPlay()
+  // before playing. submitScore() consumes the active game onchain, so without
+  // a fresh recordPlay() the next submit reverts with "No active game".
   const handlePlayAgain = useCallback(() => {
-    setPhase('playing');
+    setPhase('starting');
+  }, []);
+
+  // Cancel re-entry from the "starting" gate — return to the game over screen.
+  const handleCancelStart = useCallback(() => {
+    setPhase('over');
   }, []);
 
   // Quit to wallet gate
@@ -93,8 +101,12 @@ export default function App() {
       />
 
       {/* Overlays — mutually exclusive by phase */}
-      {phase === 'wallet' && (
-        <WalletGate onReady={handleWalletReady} onViewLeaderboard={handleOpenLB} />
+      {(phase === 'wallet' || phase === 'starting') && (
+        <WalletGate
+          onReady={handleWalletReady}
+          onViewLeaderboard={phase === 'wallet' ? handleOpenLB : undefined}
+          onCancel={phase === 'starting' ? handleCancelStart : undefined}
+        />
       )}
       {phase === 'paused' && (
         <PauseOverlay
