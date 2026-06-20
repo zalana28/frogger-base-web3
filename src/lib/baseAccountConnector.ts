@@ -3,11 +3,10 @@ import type { ProviderInterface } from '@base-org/account';
 import { createConnector } from 'wagmi';
 import type { Chain } from 'viem';
 import { base } from '../config/chain.js';
-import { DATA_SUFFIX } from '../config/wagmi.js';
 
 /**
- * Lazy-initialised Base Account SDK instance. Created once on first connect;
- * `getProvider()` always returns the same EIP-1193 provider (singleton).
+ * Lazy-initialised Base Account SDK instance (singleton). Mirrors the working
+ * Bomberman setup exactly: createBaseAccountSDK({ appName, appLogoUrl, appChainIds }).
  */
 let _sdk: ReturnType<typeof createBaseAccountSDK> | null = null;
 function getSDK() {
@@ -16,29 +15,28 @@ function getSDK() {
       appName: 'Base Frogger DX',
       appLogoUrl: window.location.origin + '/favicon.ico',
       appChainIds: [base.id],
-      preference: {
-        // ERC-8021 Builder Code attribution — appended natively to initCode
-        // and executeBatch calldata by the Smart Wallet (deeper than a simple
-        // calldata suffix). This replaces the old per-call dataSuffix approach.
-        attribution: {
-          dataSuffix: DATA_SUFFIX,
-        },
-      },
     });
   }
   return _sdk;
 }
 
 /**
- * baseAccount — wagmi connector backed by @base-org/account (Base Account SDK).
- *
- * Uses the native Base Account SDK (same as the stable Bomberman integration)
- * instead of the wagmi coinbaseWallet connector which forces the hosted
- * keys.coinbase.com popup that hangs when FingerprintJS is blocked/delayed.
- *
- * The provider is EIP-1193 compliant and emits standard events
- * (accountsChanged, chainChanged, disconnect), so all wagmi hooks work
- * unchanged: useAccount, useConnect, useReadContract, useWriteContract, etc.
+ * Direct access to the Base Account EIP-1193 provider — used by
+ * useBuilderCodeTransaction to send raw eth_sendTransaction calls (same pattern
+ * as Bomberman's payAndStart). This avoids the wagmi/viem RPC methods that the
+ * Base Account provider does NOT implement (eth_estimateGas, simulation, etc.),
+ * which caused the "unsupported-method" error from keys.coinbase.com.
+ */
+export function getWalletProvider(): ProviderInterface {
+  return getSDK().getProvider();
+}
+
+/**
+ * baseAccount — wagmi connector for connection + onchain reads (via wagmi's own
+ * HTTP public client). Contract WRITES must go through getWalletProvider() +
+ * raw eth_sendTransaction (see useBuilderCodeTransaction), NOT through wagmi
+ * useWriteContract — that path triggers unsupported RPC methods on the Base
+ * Account provider.
  */
 export function baseAccount() {
   return createConnector<{ provider: ProviderInterface }>((config) => ({
@@ -48,19 +46,16 @@ export function baseAccount() {
     type: 'base-account',
 
     async connect({ chainId }) {
-      const sdk = getSDK();
-      const provider = sdk.getProvider();
+      const provider = getWalletProvider();
 
-      // Request accounts — this triggers the Base Account connection flow
       const accounts = await provider.request({
         method: 'eth_requestAccounts',
       }) as string[];
 
-      // If a specific chainId is requested and it differs from current, switch
       if (chainId) {
-        const currentChainId = await provider.request({
+        const currentChainId = (await provider.request({
           method: 'eth_chainId',
-        }) as string;
+        })) as string;
         const targetHex = '0x' + chainId.toString(16);
         if (currentChainId !== targetHex) {
           try {
@@ -69,7 +64,6 @@ export function baseAccount() {
               params: [{ chainId: targetHex }],
             });
           } catch (switchError: any) {
-            // If chain not added (4902), try adding it from our configured chains
             if (switchError?.code === 4902) {
               const chain = config.chains.find(
                 (c) => c.id === chainId,
@@ -97,13 +91,11 @@ export function baseAccount() {
         }
       }
 
-      // Read the final chainId after any potential switch
       const chainIdHex = (await provider.request({
         method: 'eth_chainId',
       })) as string;
       const connectedChainId = parseInt(chainIdHex, 16);
 
-      // Listen for future account/chain/disconnect events from the provider
       provider.on('accountsChanged', (newAccounts: string[]) => {
         this.onAccountsChanged(newAccounts);
       });
@@ -121,40 +113,32 @@ export function baseAccount() {
     },
 
     async disconnect() {
-      const sdk = getSDK();
-      const provider = sdk.getProvider();
       try {
-        await provider.disconnect();
+        await getWalletProvider().disconnect();
       } catch {
-        // Some providers don't support disconnect — ignore
+        /* some providers don't support disconnect */
       }
     },
 
     async getAccounts() {
-      const sdk = getSDK();
-      const provider = sdk.getProvider();
-      const accounts = await provider.request({
+      const accounts = (await getWalletProvider().request({
         method: 'eth_accounts',
-      }) as string[];
+      })) as string[];
       return (accounts || []) as readonly `0x${string}`[];
     },
 
     async getChainId() {
-      const sdk = getSDK();
-      const provider = sdk.getProvider();
-      const chainIdHex = (await provider.request({
+      const chainIdHex = (await getWalletProvider().request({
         method: 'eth_chainId',
       })) as string;
       return parseInt(chainIdHex, 16);
     },
 
     async isAuthorized() {
-      const sdk = getSDK();
-      const provider = sdk.getProvider();
       try {
-        const accounts = await provider.request({
+        const accounts = (await getWalletProvider().request({
           method: 'eth_accounts',
-        }) as string[];
+        })) as string[];
         return (accounts?.length ?? 0) > 0;
       } catch {
         return false;
@@ -162,7 +146,7 @@ export function baseAccount() {
     },
 
     async getProvider() {
-      return getSDK().getProvider();
+      return getWalletProvider();
     },
 
     onAccountsChanged(accounts) {
@@ -176,8 +160,7 @@ export function baseAccount() {
     },
 
     onChainChanged(chainId) {
-      const id = parseInt(chainId, 16);
-      config.emitter.emit('change', { chainId: id });
+      config.emitter.emit('change', { chainId: parseInt(chainId, 16) });
     },
 
     onDisconnect() {
