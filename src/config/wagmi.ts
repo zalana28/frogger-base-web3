@@ -29,7 +29,9 @@ export const wagmiConfig = createConfig({
   // Vite SPA — no server-side rendering.
   ssr: false,
   storage: createStorage({ storage: typeof window !== 'undefined' ? window.localStorage : undefined }),
-  // Appends the builder code suffix to public client calls (estimateGas, etc.)
-  // and to sendTransaction calls that resolve via this config's own client.
-  dataSuffix: DATA_SUFFIX,
+  // NOTE: The ERC-8021 builder code suffix is appended per-call via the
+  // `dataSuffix` option in `useBuilderCodeTransaction` (DATA_SUFFIX). We do NOT
+  // set it here at the config level to avoid it being applied twice. The suffix
+  // is trailing calldata that the contract ignores beyond selector/args, so
+  // client-side estimateGas/simulate stay accurate without it.
 });

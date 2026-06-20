@@ -19,9 +19,12 @@ import { useBuilderCodeTransaction } from '../hooks/useBuilderCodeTransaction.js
 export default function WalletGate({
   onReady,
   onViewLeaderboard,
+  onCancel,
 }: {
   onReady: () => void;
   onViewLeaderboard?: () => void;
+  /** When set, this gate is re-arming a game session (Play Again path). */
+  onCancel?: () => void;
 }) {
   const { address, isConnected, connector } = useAccount();
   const { connect, connectors, isPending: isConnecting } = useConnect();
@@ -119,13 +122,23 @@ export default function WalletGate({
 
             {!hash && !isPending && !isConfirming && !isError && (
               <>
-                <p>Click below to enter the game and pay the play fee on Base.</p>
+                <p>
+                  {onCancel
+                    ? 'Start a new game session on Base to play again and submit a new score.'
+                    : 'Click below to enter the game and pay the play fee on Base.'}
+                </p>
                 <button className="warn" onClick={handleEnterGame}>
-                  🐸 ENTER GAME &amp; PLAY
+                  {onCancel ? '🐸 PLAY AGAIN' : '🐸 ENTER GAME & PLAY'}
                 </button>
-                <button className="alt" onClick={() => disconnect()}>
-                  DISCONNECT
-                </button>
+                {onCancel ? (
+                  <button className="alt" onClick={onCancel}>
+                    CANCEL
+                  </button>
+                ) : (
+                  <button className="alt" onClick={() => disconnect()}>
+                    DISCONNECT
+                  </button>
+                )}
               </>
             )}
 
@@ -159,6 +172,11 @@ export default function WalletGate({
                 <button className="alt" onClick={handleEnterGame} style={{ marginTop: 8, maxWidth: 200 }}>
                   RETRY
                 </button>
+                {onCancel && (
+                  <button className="alt" onClick={onCancel} style={{ marginTop: 8, maxWidth: 200, marginLeft: 8 }}>
+                    CANCEL
+                  </button>
+                )}
               </div>
             )}
           </>
