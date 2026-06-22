@@ -1,5 +1,11 @@
 import { useEffect } from 'react';
-import { useAccount, useConnect, useDisconnect, useSwitchChain, useReadContract } from 'wagmi';
+import {
+  useAccount,
+  useConnect,
+  useDisconnect,
+  useSwitchChain,
+  useReadContract,
+} from 'wagmi';
 import { formatEther } from 'viem';
 import { FROGGER_LEADERBOARD_ADDRESS } from '../config/wagmi.js';
 import { base } from '../config/chain.js';
@@ -10,7 +16,7 @@ import { useBuilderCodeTransaction } from '../hooks/useBuilderCodeTransaction.js
  * WalletGate — full-screen overlay shown BEFORE the player can start the game.
  *
  * Flow:
- * 1. Show "Connect Wallet" button (Coinbase Smart Wallet)
+ * 1. Show "Connect Wallet" button (Coinbase Smart Wallet + injected wallets)
  * 2. After connect: ensure Base chain
  * 3. Player clicks "Enter Game & Play" → sends recordPlay() tx with the
  *    ERC-8021 builder code suffix appended to calldata (payable with playFee)
@@ -26,8 +32,8 @@ export default function WalletGate({
   /** When set, this gate is re-arming a game session (Play Again path). */
   onCancel?: () => void;
 }) {
-  const { address, isConnected, connector } = useAccount();
-  const { connect, connectors, isPending: isConnecting } = useConnect();
+  const { address, isConnected, isConnecting, isReconnecting, connector } = useAccount();
+  const { connect, connectors, isPending: isConnectPending } = useConnect();
   const { disconnect } = useDisconnect();
   const { switchChain } = useSwitchChain();
 
@@ -56,17 +62,19 @@ export default function WalletGate({
     if (isSuccess) onReady();
   }, [isSuccess, onReady]);
 
-  function handleConnect(connectorId: string) {
+  async function handleConnect(connectorId: string) {
     const c = connectors.find((c) => c.id === connectorId);
-    if (c) {
-      connect(
-        { connector: c },
-        {
-          onSuccess: () => {
-            try { switchChain({ chainId: base.id }); } catch { /* may already be on Base */ }
-          },
-        },
-      );
+    if (!c) return;
+    try {
+      await connect({ connector: c });
+      // After successful connection, ensure we're on Base
+      try {
+        await switchChain({ chainId: base.id });
+      } catch {
+        // may already be on Base
+      }
+    } catch {
+      // connection error handled by useConnect error state
     }
   }
 
@@ -75,6 +83,18 @@ export default function WalletGate({
     send('recordPlay', [], {
       value: playFee ?? BigInt(0),
     });
+  }
+
+  if (isReconnecting) {
+    return (
+      <div className="overlay">
+        <div className="panel">
+          <h1>BASE FROGGER DX</h1>
+          <h2>🐸 RECONNECTING... 🐸</h2>
+          <p>Restoring wallet session...</p>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -94,9 +114,9 @@ export default function WalletGate({
               <button
                 key={c.id}
                 onClick={() => handleConnect(c.id)}
-                disabled={isConnecting}
+                disabled={isConnectPending || isConnecting}
               >
-                {isConnecting ? '⏳ Connecting...' : `🔗 ${c.name}`}
+                {isConnectPending || isConnecting ? '⏳ Connecting...' : `🔗 ${c.name}`}
               </button>
             ))}
 
@@ -153,7 +173,15 @@ export default function WalletGate({
                 ⏳ Waiting for confirmation...
                 {hash && (
                   <p className="small">
-                    TX: <a href={`https://basescan.org/tx/${hash}`} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>{hash.slice(0, 10)}...</a>
+                    TX:{' '}
+                    <a
+                      href={`https://basescan.org/tx/${hash}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={{ color: 'var(--accent)' }}
+                    >
+                      {hash.slice(0, 10)}...
+                    </a>
                   </p>
                 )}
               </div>
@@ -167,13 +195,22 @@ export default function WalletGate({
 
             {isError && (
               <div className="tx-status" style={{ borderColor: 'var(--danger)' }}>
-                ⚠ {error?.shortMessage || error?.message || 'Transaction failed. Try again.'}
+                ⚠{' '}
+                {error?.shortMessage || error?.message || 'Transaction failed. Try again.'}
                 <br />
-                <button className="alt" onClick={handleEnterGame} style={{ marginTop: 8, maxWidth: 200 }}>
+                <button
+                  className="alt"
+                  onClick={handleEnterGame}
+                  style={{ marginTop: 8, maxWidth: 200 }}
+                >
                   RETRY
                 </button>
                 {onCancel && (
-                  <button className="alt" onClick={onCancel} style={{ marginTop: 8, maxWidth: 200, marginLeft: 8 }}>
+                  <button
+                    className="alt"
+                    onClick={onCancel}
+                    style={{ marginTop: 8, maxWidth: 200, marginLeft: 8 }}
+                  >
                     CANCEL
                   </button>
                 )}
