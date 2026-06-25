@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import {
   useAccount,
   useConnect,
@@ -12,11 +12,41 @@ import { base } from '../config/chain.js';
 import FROGGER_ABI from '../abi/FroggerLeaderboard.json';
 import { useBuilderCodeTransaction } from '../hooks/useBuilderCodeTransaction.js';
 
+// Emoji map for known wallet connectors (fallback to generic 🔗)
+const CONNECTOR_ICONS: Record<string, string> = {
+  baseAccount: '🔵',
+  coinbaseWallet: '🔵',
+  metaMask: '🦊',
+  injected: '🌐',
+  walletConnect: '🔷',
+  rabby: '🐰',
+  okxWallet: '🟢',
+  phantom: '👻',
+  braveWallet: '🦁',
+  tronLink: '🔴',
+};
+
+function getConnectorIcon(name: string, id: string): string {
+  const lowerId = id.toLowerCase();
+  if (CONNECTOR_ICONS[id]) return CONNECTOR_ICONS[id];
+  if (lowerId.includes('coinbase') || lowerId.includes('baseaccount')) return '🔵';
+  if (lowerId.includes('metamask') || lowerId.includes('metaMask')) return '🦊';
+  if (lowerId.includes('rabby')) return '🐰';
+  if (lowerId.includes('okx')) return '🟢';
+  if (lowerId.includes('phantom')) return '👻';
+  if (lowerId.includes('brave')) return '🦁';
+  if (lowerId.includes('tron')) return '🔴';
+  if (lowerId.includes('injected')) return '🌐';
+  if (lowerId.includes('walletconnect')) return '🔷';
+  return '🔗';
+}
+
 /**
- * WalletGate — full-screen overlay shown BEFORE the player can start the game.
+ * WalletGate — full-screen arcade-style overlay shown BEFORE the player
+ * can start the game.
  *
  * Flow:
- * 1. Show "Connect Wallet" button (Coinbase Smart Wallet + injected wallets)
+ * 1. Show hero title + "Connect Wallet" button (opens connector modal)
  * 2. After connect: ensure Base chain
  * 3. Player clicks "Enter Game & Play" → sends recordPlay() tx with the
  *    ERC-8021 builder code suffix appended to calldata (payable with playFee)
@@ -32,6 +62,8 @@ export default function WalletGate({
   /** When set, this gate is re-arming a game session (Play Again path). */
   onCancel?: () => void;
 }) {
+  const [showModal, setShowModal] = useState(false);
+
   const { address, isConnected, isConnecting, isReconnecting, connector } = useAccount();
   const { connect, connectors, isPending: isConnectPending } = useConnect();
   const { disconnect } = useDisconnect();
@@ -73,6 +105,8 @@ export default function WalletGate({
       } catch {
         // may already be on Base
       }
+      // Close modal after successful connect attempt
+      setShowModal(false);
     } catch {
       // connection error handled by useConnect error state
     }
@@ -85,12 +119,18 @@ export default function WalletGate({
     });
   }
 
+  // Shorten address for display
+  const shortAddress = address
+    ? `${address.slice(0, 6)}...${address.slice(-4)}`
+    : '';
+
   if (isReconnecting) {
     return (
       <div className="overlay">
         <div className="panel">
-          <h1>BASE FROGGER DX</h1>
-          <h2>🐸 RECONNECTING... 🐸</h2>
+          <div className="hero-mascot">🐸</div>
+          <div className="hero-title">BASE FROGGER</div>
+          <div className="hero-subtitle">RECONNECTING...</div>
           <p>Restoring wallet session...</p>
         </div>
       </div>
@@ -98,127 +138,183 @@ export default function WalletGate({
   }
 
   return (
-    <div className="overlay">
-      <div className="panel">
-        <h1>BASE FROGGER DX</h1>
-        <h2>🐸 CONNECT WALLET 🐸</h2>
-
-        {!isConnected ? (
-          <>
-            <p>Connect your wallet on Base network to start playing.</p>
-            <p className="small">
-              Coinbase Smart Wallet uses passkeys — no extension needed.
-            </p>
-
+    <>
+      {/* ---- Wallet Connector Modal ---- */}
+      {showModal && (
+        <div
+          className="wallet-modal-overlay"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setShowModal(false);
+          }}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Select wallet"
+        >
+          <div className="wallet-modal">
+            <h3>🐸 CONNECT WALLET</h3>
             {connectors.map((c) => (
               <button
                 key={c.id}
+                className="connector-btn"
                 onClick={() => handleConnect(c.id)}
                 disabled={isConnectPending || isConnecting}
               >
-                {isConnectPending || isConnecting ? '⏳ Connecting...' : `🔗 ${c.name}`}
+                <span className="connector-icon">
+                  {getConnectorIcon(c.name, c.id)}
+                </span>
+                <span style={{ flex: 1, textAlign: 'left' }}>
+                  {isConnectPending || isConnecting
+                    ? '⏳ Connecting...'
+                    : c.name}
+                </span>
               </button>
             ))}
+            <button
+              className="close-btn"
+              onClick={() => setShowModal(false)}
+            >
+              CLOSE
+            </button>
+          </div>
+        </div>
+      )}
 
-            {onViewLeaderboard && (
-              <button className="alt" onClick={onViewLeaderboard}>
-                🏆 LEADERBOARD
+      {/* ---- Main Overlay ---- */}
+      <div className="overlay">
+        <div className="panel">
+          {/* Hero */}
+          <div className="hero-mascot">🐸</div>
+          <div className="hero-title">BASE FROGGER</div>
+          <div className="hero-subtitle">ON BASE NETWORK</div>
+
+          {!isConnected ? (
+            <>
+              <div className="blink" style={{ margin: '14px 0' }}>
+                — TAP TO START —
+              </div>
+
+              <button
+                className="primary"
+                onClick={() => setShowModal(true)}
+                disabled={isConnectPending || isConnecting}
+              >
+                {isConnectPending || isConnecting
+                  ? '⏳ CONNECTING...'
+                  : 'CONNECT WALLET'}
               </button>
-            )}
-          </>
-        ) : (
-          <>
-            <div className="wallet-status">
-              <span className="dot connected" />
-              <span>Connected</span>
-            </div>
-            <p className="address">{address}</p>
-            <p className="small">
-              Connected via {connector?.name}
-              {playFee !== undefined && (
-                <> &middot; Play fee: {formatEther(playFee)} ETH</>
+
+              {onViewLeaderboard && (
+                <button className="secondary" onClick={onViewLeaderboard}>
+                  🏆 LEADERBOARD
+                </button>
               )}
-            </p>
-
-            {!hash && !isPending && !isConfirming && !isError && (
-              <>
-                <p>
-                  {onCancel
-                    ? 'Start a new game session on Base to play again and submit a new score.'
-                    : 'Click below to enter the game and pay the play fee on Base.'}
-                </p>
-                <button className="warn" onClick={handleEnterGame}>
-                  {onCancel ? '🐸 PLAY AGAIN' : '🐸 ENTER GAME & PLAY'}
-                </button>
-                {onCancel ? (
-                  <button className="alt" onClick={onCancel}>
-                    CANCEL
-                  </button>
-                ) : (
-                  <button className="alt" onClick={() => disconnect()}>
-                    DISCONNECT
-                  </button>
-                )}
-              </>
-            )}
-
-            {isPending && (
-              <div className="tx-status">
-                ⏳ Transaction pending... Confirm in your wallet.
+            </>
+          ) : (
+            <>
+              <div className="wallet-status">
+                <span className="dot connected" />
+                <span>Connected</span>
               </div>
-            )}
+              <p className="address">{shortAddress}</p>
+              <p className="small">
+                via {connector?.name}
+                {playFee !== undefined && (
+                  <> · Fee: {formatEther(playFee)} ETH</>
+                )}
+              </p>
 
-            {isConfirming && (
-              <div className="tx-status">
-                ⏳ Waiting for confirmation...
-                {hash && (
-                  <p className="small">
-                    TX:{' '}
-                    <a
-                      href={`https://basescan.org/tx/${hash}`}
-                      target="_blank"
-                      rel="noreferrer"
-                      style={{ color: 'var(--accent)' }}
-                    >
-                      {hash.slice(0, 10)}...
-                    </a>
+              {!hash && !isPending && !isConfirming && !isError && (
+                <>
+                  <p style={{ marginTop: 12 }}>
+                    {onCancel
+                      ? 'Start a new game session on Base to play again.'
+                      : 'Ready to jump in? Pay the play fee to start.'}
                   </p>
-                )}
-              </div>
-            )}
-
-            {isSuccess && (
-              <div className="tx-status" style={{ borderColor: '#00ff7f' }}>
-                ✅ Game entry confirmed! Starting...
-              </div>
-            )}
-
-            {isError && (
-              <div className="tx-status" style={{ borderColor: 'var(--danger)' }}>
-                ⚠{' '}
-                {error?.shortMessage || error?.message || 'Transaction failed. Try again.'}
-                <br />
-                <button
-                  className="alt"
-                  onClick={handleEnterGame}
-                  style={{ marginTop: 8, maxWidth: 200 }}
-                >
-                  RETRY
-                </button>
-                {onCancel && (
-                  <button
-                    className="alt"
-                    onClick={onCancel}
-                    style={{ marginTop: 8, maxWidth: 200, marginLeft: 8 }}
-                  >
-                    CANCEL
+                  <button className="warn" onClick={handleEnterGame}>
+                    {onCancel ? '🐸 PLAY AGAIN' : '🐸 ENTER GAME & PLAY'}
                   </button>
-                )}
-              </div>
-            )}
-          </>
-        )}
+                  {onCancel ? (
+                    <button className="secondary" onClick={onCancel}>
+                      CANCEL
+                    </button>
+                  ) : (
+                    <button className="secondary" onClick={() => disconnect()}>
+                      DISCONNECT
+                    </button>
+                  )}
+                </>
+              )}
+
+              {isPending && (
+                <div className="tx-status">
+                  ⏳ Transaction pending... Confirm in your wallet.
+                </div>
+              )}
+
+              {isConfirming && (
+                <div className="tx-status">
+                  ⏳ Waiting for confirmation...
+                  {hash && (
+                    <p className="small" style={{ marginTop: 6 }}>
+                      TX:{''}
+                      <a
+                        href={`https://basescan.org/tx/${hash}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        style={{ color: 'var(--base-bright)', marginLeft: 4 }}
+                      >
+                        {hash.slice(0, 10)}...
+                      </a>
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {isSuccess && (
+                <div
+                  className="tx-status"
+                  style={{ borderColor: 'var(--frog)' }}
+                >
+                  ✅ Game entry confirmed! Starting...
+                </div>
+              )}
+
+              {isError && (
+                <div
+                  className="tx-status"
+                  style={{ borderColor: 'var(--danger)' }}
+                >
+                  ⚠{' '}
+                  {error?.shortMessage ||
+                    error?.message ||
+                    'Transaction failed. Try again.'}
+                  <br />
+                  <button
+                    className="secondary"
+                    onClick={handleEnterGame}
+                    style={{ marginTop: 8, maxWidth: 200 }}
+                  >
+                    RETRY
+                  </button>
+                  {onCancel && (
+                    <button
+                      className="secondary"
+                      onClick={onCancel}
+                      style={{
+                        marginTop: 8,
+                        maxWidth: 200,
+                        marginLeft: 8,
+                      }}
+                    >
+                      CANCEL
+                    </button>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
-    </div>
+    </>
   );
 }

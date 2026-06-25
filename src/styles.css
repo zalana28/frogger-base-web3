@@ -1,15 +1,33 @@
+/* ============================================
+   Base Frogger DX — Arcade UI Stylesheet
+   Palette: Frog Green + Base Blue (no red/blue Bomberman)
+   ============================================ */
+
+/* ---- Color Tokens ---- */
 :root {
-  --bg: #020617;
-  --bg2: #0f172a;
-  --accent: #60a5fa;
-  --accent2: #a78bfa;
-  --warn: #fbbf24;
+  --bg: #0a0f1a;
+  --bg2: #0f1729;
+  --frog: #00e676;
+  --frog-dark: #00c853;
+  --frog-glow: rgba(0, 230, 118, 0.55);
+  --base-blue: #0052FF;
+  --base-blue-dark: #003ecc;
+  --base-bright: #4d8aff;
+  --yellow: #ffea00;
   --danger: #ef4444;
   --text: #e2e8f0;
+  --text-dim: #94a3b8;
 }
-* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+/* ---- Base / Reset ---- */
+* {
+  box-sizing: border-box;
+  -webkit-tap-highlight-color: transparent;
+}
+
 html, body {
-  margin: 0; padding: 0;
+  margin: 0;
+  padding: 0;
   background: var(--bg);
   color: var(--text);
   font-family: 'Press Start 2P', 'Courier New', monospace;
@@ -20,13 +38,19 @@ html, body {
   touch-action: none;
   user-select: none;
 }
+
+/* ---- Root Layout ---- */
 #root {
-  position: fixed; inset: 0;
-  display: flex; align-items: center; justify-content: center;
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   background: radial-gradient(ellipse at center, #10214a 0%, #030712 80%);
   overflow: hidden;
 }
-/* Game canvas stays behind all UI. */
+
+/* ---- Game Canvas ---- */
 canvas {
   image-rendering: pixelated;
   image-rendering: -moz-crisp-edges;
@@ -37,171 +61,579 @@ canvas {
   z-index: 1;
   max-width: 100vw;
   max-height: 100dvh;
-  border: 3px solid var(--accent);
+  border: 3px solid var(--base-blue);
   border-radius: 8px;
-  box-shadow: 0 0 40px rgba(96,165,250,0.25), inset 0 0 80px rgba(96,165,250,0.1);
+  box-shadow:
+    0 0 40px rgba(0, 82, 255, 0.25),
+    inset 0 0 80px rgba(0, 82, 255, 0.1);
 }
-/*
- * Overlays are FULLY removed from flow when closed via display:none.
- */
+
+/* ============================================
+   CRT OVERLAY EFFECT
+   ============================================ */
+.crt-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      rgba(0, 0, 0, 0) 0px,
+      rgba(0, 0, 0, 0) 2px,
+      rgba(0, 255, 100, 0.03) 2px,
+      rgba(0, 255, 100, 0.03) 4px
+    );
+  box-shadow:
+    inset 0 0 120px rgba(0, 0, 0, 0.6),
+    inset 0 0 40px rgba(0, 0, 0, 0.4);
+}
+
+/* ============================================
+   OVERLAYS & PANELS
+   ============================================ */
 .overlay {
-  position: fixed; inset: 0;
+  position: fixed;
+  inset: 0;
   z-index: 50;
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   padding: 16px;
-  background: rgba(2, 6, 23, 0.82);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
+  background: rgba(10, 15, 26, 0.92);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
 }
+
 .panel {
-  background: rgba(15, 23, 42, 0.95);
-  border: 2px solid var(--accent);
-  box-shadow: 0 0 20px var(--accent), inset 0 0 20px rgba(96,165,250,0.15);
-  padding: 22px 24px;
+  background: rgba(12, 18, 35, 0.96);
+  border: 2px solid var(--base-blue);
+  border-radius: 12px;
+  box-shadow:
+    0 0 24px rgba(0, 82, 255, 0.25),
+    inset 0 0 24px rgba(0, 82, 255, 0.08);
+  padding: 26px 24px;
   width: min(92vw, 420px);
-  max-height: 80dvh;
+  max-height: 84dvh;
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
+
+/* Hero title inside panel / overlay */
+.hero-mascot {
+  font-size: 48px;
+  line-height: 1;
+  margin: 0 0 12px;
+  text-shadow:
+    0 0 16px var(--frog-glow),
+    0 0 32px var(--frog-glow);
+  animation: floaty 2.5s ease-in-out infinite;
+}
+
+.hero-title {
+  font-size: 22px;
+  line-height: 1.3;
+  margin: 0 0 8px;
+  color: var(--frog);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  /* 3D extrude + glow */
+  text-shadow:
+    0 0 8px var(--frog-glow),
+    1px 1px 0 var(--frog-dark),
+    2px 2px 0 var(--frog-dark),
+    3px 3px 0 #007a3d;
+}
+
+.hero-subtitle {
+  font-size: 10px;
+  line-height: 1.4;
+  margin: 0 0 18px;
+  color: var(--base-bright);
+  letter-spacing: 3px;
+  text-transform: uppercase;
+}
+
+/* Standard headings (backward compat for other overlays) */
 h1 {
   font-size: 18px;
-  margin: 0 0 4px;
-  color: var(--accent);
-  text-shadow: 0 0 6px var(--accent), 2px 2px 0 var(--accent2);
+  margin: 0 0 6px;
+  color: var(--frog);
+  text-shadow:
+    0 0 8px var(--frog-glow),
+    1px 1px 0 var(--frog-dark),
+    2px 2px 0 #007a3d;
   letter-spacing: 1px;
 }
+
 h2 {
-  font-size: 12px; margin: 0 0 16px;
-  color: var(--accent2);
+  font-size: 11px;
+  margin: 0 0 16px;
+  color: var(--base-bright);
   letter-spacing: 2px;
 }
-p { font-size: 11px; line-height: 1.6; margin: 8px 0; }
+
+p {
+  font-size: 10px;
+  line-height: 1.7;
+  margin: 10px 0;
+  color: var(--text-dim);
+}
+
+/* ============================================
+   BUTTONS — 3D HIERARCHY
+   ============================================ */
 button {
   font-family: 'Press Start 2P', 'Courier New', monospace;
   font-weight: bold;
-  background: var(--bg2);
-  color: var(--accent);
-  border: 2px solid var(--accent);
-  padding: 10px 16px;
-  margin: 6px 0;
+  background: transparent;
+  color: var(--base-bright);
+  border: 2px solid var(--base-bright);
+  border-radius: 6px;
+  padding: 14px 18px;
+  margin: 8px 0;
   cursor: pointer;
-  font-size: 11px;
+  font-size: 10px;
   letter-spacing: 1px;
   text-transform: uppercase;
-  transition: all 0.15s;
-  min-width: 130px;
+  transition: transform 0.08s ease, box-shadow 0.15s ease, background 0.15s ease;
+  min-width: 140px;
   width: 100%;
   max-width: 280px;
+  position: relative;
+  top: 0;
 }
-button:hover, button:active {
-  background: var(--accent);
-  color: var(--bg);
-  box-shadow: 0 0 16px var(--accent);
+
+/* Primary — solid 3D */
+button.primary {
+  background: var(--base-blue);
+  color: #ffffff;
+  border-color: var(--base-blue-dark);
+  box-shadow: 0 4px 0 var(--base-blue-dark);
 }
+
+button.primary:hover {
+  background: var(--base-bright);
+  border-color: var(--base-bright);
+  box-shadow: 0 4px 0 var(--base-blue);
+}
+
+button.primary:active {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 var(--base-blue-dark);
+}
+
+/* Secondary — outline */
+button.secondary {
+  background: transparent;
+  color: var(--base-bright);
+  border-color: var(--base-bright);
+  box-shadow: 0 3px 0 rgba(77, 138, 255, 0.25);
+}
+
+button.secondary:hover {
+  background: rgba(77, 138, 255, 0.12);
+  box-shadow: 0 3px 0 rgba(77, 138, 255, 0.4);
+}
+
+button.secondary:active {
+  transform: translateY(3px);
+  box-shadow: 0 0 0 transparent;
+}
+
+/* Warn / Action (Enter Game, Play Again) — Frog Green 3D */
+button.warn {
+  background: var(--frog-dark);
+  color: #021408;
+  border-color: var(--frog-dark);
+  box-shadow: 0 4px 0 #007a3d;
+}
+
+button.warn:hover {
+  background: var(--frog);
+  border-color: var(--frog);
+  box-shadow: 0 4px 0 var(--frog-dark);
+}
+
+button.warn:active {
+  transform: translateY(4px);
+  box-shadow: 0 0 0 #007a3d;
+}
+
+/* Legacy .alt mapped to secondary outline */
+button.alt {
+  background: transparent;
+  color: var(--base-bright);
+  border-color: var(--base-bright);
+  box-shadow: 0 3px 0 rgba(77, 138, 255, 0.25);
+}
+
+button.alt:hover {
+  background: rgba(77, 138, 255, 0.12);
+  box-shadow: 0 3px 0 rgba(77, 138, 255, 0.4);
+}
+
+button.alt:active {
+  transform: translateY(3px);
+  box-shadow: 0 0 0 transparent;
+}
+
+/* Default / legacy fallback (neutral outline) */
+button:not(.primary):not(.secondary):not(.warn):not(.alt):not(.connector-btn):not(.close-btn) {
+  background: transparent;
+  color: var(--base-bright);
+  border-color: var(--base-bright);
+  box-shadow: 0 3px 0 rgba(77, 138, 255, 0.25);
+}
+
+button:not(.primary):not(.secondary):not(.warn):not(.alt):not(.connector-btn):not(.close-btn):hover {
+  background: rgba(77, 138, 255, 0.12);
+  box-shadow: 0 3px 0 rgba(77, 138, 255, 0.4);
+}
+
+button:not(.primary):not(.secondary):not(.warn):not(.alt):not(.connector-btn):not(.close-btn):active {
+  transform: translateY(3px);
+  box-shadow: 0 0 0 transparent;
+}
+
 button:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+/* ============================================
+   BLINKING TEXT
+   ============================================ */
+.blink {
+  animation: blink 1.2s step-start infinite;
+  color: var(--yellow);
+  text-shadow: 0 0 8px rgba(255, 234, 0, 0.5);
+  font-size: 11px;
+  letter-spacing: 2px;
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.2; }
+}
+
+/* ============================================
+   WALLET MODAL
+   ============================================ */
+.wallet-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.75);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.wallet-modal {
+  background: rgba(12, 18, 35, 0.98);
+  border: 2px solid var(--base-blue);
+  border-radius: 12px;
+  box-shadow: 0 0 30px rgba(0, 82, 255, 0.3);
+  padding: 22px 20px;
+  width: min(92vw, 380px);
+  max-height: 80dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.wallet-modal h3 {
+  font-size: 12px;
+  margin: 0 0 14px;
+  color: var(--frog);
+  text-shadow: 0 0 8px var(--frog-glow);
+  text-align: center;
+  letter-spacing: 1px;
+}
+
+.connector-btn {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 14px;
+  margin: 6px 0;
+  font-size: 10px;
+  background: rgba(0, 82, 255, 0.08);
+  border: 1.5px solid rgba(0, 82, 255, 0.35);
+  border-radius: 8px;
+  color: var(--text);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  text-transform: none;
+  letter-spacing: 0.5px;
+  box-shadow: none;
+}
+
+.connector-btn:hover {
+  background: rgba(0, 82, 255, 0.2);
+  border-color: var(--base-bright);
+  box-shadow: 0 0 12px rgba(0, 82, 255, 0.15);
+}
+
+.connector-btn:active {
+  transform: scale(0.98);
+}
+
+.connector-btn:disabled {
+  opacity: 0.4;
   cursor: not-allowed;
 }
-button.alt { color: var(--accent2); border-color: var(--accent2); }
-button.alt:hover { background: var(--accent2); color: var(--bg); box-shadow: 0 0 16px var(--accent2); }
-button.warn { color: var(--warn); border-color: var(--warn); }
-button.warn:hover { background: var(--warn); color: var(--bg); box-shadow: 0 0 16px var(--warn); }
-.hud {
-  position: absolute; top: 10px; left: 10px; right: 10px;
-  display: flex; justify-content: space-between; align-items: flex-start;
-  pointer-events: none;
-  font-size: 11px; letter-spacing: 1px;
-  text-shadow: 0 0 4px rgba(0,0,0,0.9);
-  z-index: 10;
-}
-.hud-block { background: rgba(0,0,0,0.35); padding: 6px 10px; border: 1px solid rgba(96,165,250,0.4); }
-.hud .label { color: var(--accent2); font-size: 8px; display: block; }
-.hud .val { color: var(--accent); font-size: 13px; font-weight: bold; }
-.leaderboard {
-  list-style: none; padding: 0; margin: 8px 0 14px;
-  text-align: left; font-size: 11px;
-  max-height: 42dvh; overflow-y: auto;
-  overscroll-behavior: contain;
-  -webkit-overflow-scrolling: touch;
-}
-.leaderboard li {
-  display: flex; justify-content: space-between;
-  padding: 4px 6px; border-bottom: 1px dashed rgba(96,165,250,0.2);
-}
-.leaderboard li.you { color: var(--warn); }
-.rank { color: var(--accent2); }
-.level { color: var(--warn); font-size: 9px; }
-.score { color: var(--accent); font-weight: bold; }
-.small { font-size: 9px; opacity: 0.7; }
-.hidden { display: none !important; pointer-events: none !important; }
 
-/* Wallet-specific styles */
+.connector-icon {
+  font-size: 18px;
+  line-height: 1;
+  flex-shrink: 0;
+  width: 28px;
+  text-align: center;
+}
+
+.close-btn {
+  display: block;
+  margin: 14px auto 0;
+  width: auto;
+  min-width: 100px;
+  padding: 10px 18px;
+  font-size: 9px;
+  background: transparent;
+  border: 1.5px solid var(--text-dim);
+  color: var(--text-dim);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  box-shadow: none;
+}
+
+.close-btn:hover {
+  border-color: var(--text);
+  color: var(--text);
+}
+
+/* ============================================
+   WALLET STATUS
+   ============================================ */
 .wallet-status {
-  display: flex; align-items: center; gap: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   justify-content: center;
   margin: 10px 0;
-  font-size: 11px;
+  font-size: 10px;
 }
+
 .wallet-status .dot {
-  width: 8px; height: 8px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   display: inline-block;
 }
-.wallet-status .dot.connected { background: #00ff7f; }
-.wallet-status .dot.disconnected { background: var(--danger); }
-.wallet-status .dot.pending { background: var(--warn); animation: pulse 1s infinite; }
+
+.wallet-status .dot.connected {
+  background: var(--frog);
+  box-shadow: 0 0 6px var(--frog);
+}
+
+.wallet-status .dot.disconnected {
+  background: var(--danger);
+}
+
+.wallet-status .dot.pending {
+  background: var(--yellow);
+  animation: pulse 1s infinite;
+}
+
 @keyframes pulse {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
 }
+
 .address {
-  font-size: 10px;
-  color: var(--accent);
+  font-size: 9px;
+  color: var(--base-bright);
   word-break: break-all;
   margin: 4px 0;
 }
+
 .tx-status {
-  font-size: 10px;
-  margin: 8px 0;
-  padding: 6px 10px;
-  background: rgba(0,0,0,0.3);
-  border: 1px dashed rgba(96,165,250,0.3);
+  font-size: 9px;
+  margin: 10px 0;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px dashed rgba(0, 82, 255, 0.3);
+  border-radius: 6px;
+  line-height: 1.5;
 }
 
-/* Mobile touch controls — D-pad style */
+/* ============================================
+   HUD
+   ============================================ */
+.hud {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  pointer-events: none;
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-shadow: 0 0 4px rgba(0, 0, 0, 0.9);
+  z-index: 10;
+}
+
+.hud-block {
+  background: rgba(0, 0, 0, 0.35);
+  padding: 6px 10px;
+  border: 1px solid rgba(0, 82, 255, 0.4);
+  border-radius: 4px;
+}
+
+.hud .label {
+  color: var(--base-bright);
+  font-size: 8px;
+  display: block;
+}
+
+.hud .val {
+  color: var(--frog);
+  font-size: 13px;
+  font-weight: bold;
+}
+
+/* ============================================
+   LEADERBOARD
+   ============================================ */
+.leaderboard {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 14px;
+  text-align: left;
+  font-size: 10px;
+  max-height: 42dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+.leaderboard li {
+  display: flex;
+  justify-content: space-between;
+  padding: 5px 8px;
+  border-bottom: 1px dashed rgba(0, 82, 255, 0.2);
+}
+
+.leaderboard li.you {
+  color: var(--yellow);
+}
+
+.rank {
+  color: var(--base-bright);
+}
+
+.level {
+  color: var(--yellow);
+  font-size: 9px;
+}
+
+.score {
+  color: var(--frog);
+  font-weight: bold;
+}
+
+.small {
+  font-size: 9px;
+  opacity: 0.7;
+}
+
+.hidden {
+  display: none !important;
+  pointer-events: none !important;
+}
+
+/* ============================================
+   MOBILE TOUCH CONTROLS
+   ============================================ */
 .touch-ctrl {
   position: absolute;
   bottom: calc(env(safe-area-inset-bottom, 0px) + 16px);
   left: 50%;
   transform: translateX(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
   pointer-events: auto;
   opacity: 0.6;
   z-index: 10;
 }
+
 .touch-row {
-  display: flex; gap: 4px;
+  display: flex;
+  gap: 4px;
 }
+
 .tbtn {
-  width: 56px; height: 56px;
+  width: 56px;
+  height: 56px;
   border-radius: 12px;
-  background: rgba(96,165,250,0.15);
-  border: 2px solid var(--accent);
-  display: flex; align-items: center; justify-content: center;
-  color: var(--accent); font-size: 18px; font-weight: bold;
+  background: rgba(0, 82, 255, 0.15);
+  border: 2px solid var(--base-blue);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--base-bright);
+  font-size: 18px;
+  font-weight: bold;
   user-select: none;
   cursor: pointer;
 }
-.tbtn:active { background: var(--accent); color: var(--bg); }
 
-/* Landscape: keep D-pad centered at bottom */
+.tbtn:active {
+  background: var(--base-blue);
+  color: #fff;
+}
+
+/* ============================================
+   ANIMATIONS
+   ============================================ */
+@keyframes floaty {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-6px); }
+}
+
+/* Landscape tweaks */
 @media (orientation: landscape) {
   .touch-ctrl {
     bottom: calc(env(safe-area-inset-bottom, 0px) + 8px);
   }
 }
 
-@media (hover: hover) { .touch-ctrl { display: none; } }
+/* Hide touch controls on hover-capable devices */
+@media (hover: hover) {
+  .touch-ctrl {
+    display: none;
+  }
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  .blink,
+  .hero-mascot,
+  .wallet-status .dot.pending {
+    animation: none;
+  }
+}
